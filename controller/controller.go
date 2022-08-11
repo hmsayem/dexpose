@@ -14,7 +14,7 @@ import (
 type controller struct {
 	clientset kubernetes.Interface
 	depLister lister.DeploymentLister
-	depCached cache.InformerSynced
+	isSynced  cache.InformerSynced
 	queue     workqueue.RateLimitingInterface
 }
 
@@ -22,33 +22,68 @@ func NewController(clientset kubernetes.Interface, depInformer v1.DeploymentInfo
 	c := &controller{
 		clientset: clientset,
 		depLister: depInformer.Lister(),
-		depCached: depInformer.Informer().HasSynced,
+		isSynced:  depInformer.Informer().HasSynced,
 		queue:     workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter()),
 	}
 
 	depInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc:    handleAdd,
-		DeleteFunc: handleDelete,
+		AddFunc:    c.handleAdd,
+		DeleteFunc: c.handleDelete,
 	})
 	return c
 }
 func (c *controller) Run(stopCh <-chan struct{}) {
 	klog.Infoln("Starting controller: Dexpose")
-	if !cache.WaitForCacheSync(stopCh, c.depCached) {
+	if !cache.WaitForCacheSync(stopCh, c.isSynced) {
 		klog.Error("failed to sync cache")
 	}
 
-	go wait.Until(worker, 1*time.Second, stopCh)
+	go wait.Until(c.worker, 1*time.Second, stopCh)
 	<-stopCh
 }
 
-func worker() {
+func (c *controller) worker() {
+	for c.processItem() {
+
+	}
+}
+
+func (c *controller) processItem() bool {
+	item, shutdown := c.queue.Get()
+
+	if shutdown {
+		return false
+	}
+
+	key, err := cache.MetaNamespaceKeyFunc(item)
+	if err != nil {
+		klog.Error(err)
+	}
+
+	name, ns, err := cache.SplitMetaNamespaceKey(key)
+	if err != nil {
+		klog.Error(err)
+	}
+
+	klog.Infoln("Processing", name, ns)
+	return true
+}
+
+func (c *controller) handleAdd(obj interface{}) {
+	key, err := cache.MetaNamespaceKeyFunc(obj)
+	if err != nil {
+		klog.Error(err)
+	}
+	klog.Infof("%s created.", key)
+	c.queue.Add(obj)
 
 }
-func handleAdd(obj interface{}) {
-	klog.Info("Add event!")
-}
 
-func handleDelete(obj interface{}) {
-
+func (c *controller) handleDelete(obj interface{}) {
+	key, err := cache.MetaNamespaceKeyFunc(obj)
+	if err != nil {
+		klog.Error(err)
+	}
+	klog.Infof("%s deleted.", key)
+	c.queue.Add(obj)
 }
