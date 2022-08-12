@@ -44,7 +44,6 @@ func (c *controller) Run(stopCh <-chan struct{}) {
 
 func (c *controller) worker() {
 	for c.processItem() {
-
 	}
 }
 
