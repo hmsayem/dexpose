@@ -1,6 +1,9 @@
 package controller
 
 import (
+	"context"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/informers/apps/v1"
 	"k8s.io/client-go/kubernetes"
@@ -49,7 +52,7 @@ func (c *controller) worker() {
 
 func (c *controller) processItem() bool {
 	item, shutdown := c.queue.Get()
-
+	defer c.queue.Forget(item)
 	if shutdown {
 		return false
 	}
@@ -85,4 +88,28 @@ func (c *controller) handleDelete(obj interface{}) {
 	}
 	klog.Infof("%s deleted.", key)
 	c.queue.Add(obj)
+}
+
+func (c *controller) createServiceAccount(ns, name string) error {
+	sa := corev1.ServiceAccount{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: ns,
+			Name:      name,
+		},
+	}
+	_, err := c.clientset.CoreV1().ServiceAccounts(ns).Create(context.Background(), &sa, metav1.CreateOptions{})
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (c *controller) syncDeployment(ns, name string) error {
+	klog.Infoln("Syncing Deployment")
+
+	return nil
+}
+func (c *controller) expose() {
+	//create svc
+	//create ingress
 }
