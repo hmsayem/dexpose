@@ -2,7 +2,10 @@ package controller
 
 import (
 	"context"
+	"fmt"
+	coreapi "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	netapi "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/informers/apps/v1"
@@ -62,12 +65,16 @@ func (c *controller) processItem() bool {
 		klog.Error(err)
 	}
 
-	name, ns, err := cache.SplitMetaNamespaceKey(key)
+	ns, name, err := cache.SplitMetaNamespaceKey(key)
 	if err != nil {
 		klog.Error(err)
 	}
 
-	klog.Infoln("Processing", name, ns)
+	klog.Infof("Processing Deployment: %v/%v", name, ns)
+	if err := c.syncDeployment(name, ns); err != nil {
+		klog.Errorf("Failed to sync Deployment: %v/%v. Reason: %v", name, ns, err)
+		return false
+	}
 	return true
 }
 
@@ -76,9 +83,8 @@ func (c *controller) handleAdd(obj interface{}) {
 	if err != nil {
 		klog.Error(err)
 	}
-	klog.Infof("%s created.", key)
+	klog.Infof("%v created.", key)
 	c.queue.Add(obj)
-
 }
 
 func (c *controller) handleDelete(obj interface{}) {
@@ -86,30 +92,92 @@ func (c *controller) handleDelete(obj interface{}) {
 	if err != nil {
 		klog.Error(err)
 	}
-	klog.Infof("%s deleted.", key)
+	klog.Infof("%v deleted.", key)
 	c.queue.Add(obj)
 }
 
-func (c *controller) createServiceAccount(ns, name string) error {
-	sa := corev1.ServiceAccount{
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace: ns,
-			Name:      name,
-		},
-	}
-	_, err := c.clientset.CoreV1().ServiceAccounts(ns).Create(context.Background(), &sa, metav1.CreateOptions{})
+func (c *controller) syncDeployment(name, ns string) error {
+	klog.Infof("Syncing Deployment: %v/%v", name, ns)
+	dep, err := c.depLister.Deployments(ns).Get(name)
 	if err != nil {
+		return err
+	}
+	if err := c.expose(dep); err != nil {
+		return err
+	}
+	return nil
+
+}
+func (c *controller) expose(dep *coreapi.Deployment) error {
+	svc, err := c.createService(dep.Name, dep.Namespace, dep.Labels)
+	if err != nil {
+		return err
+	}
+	if err = c.createIngress(svc); err != nil {
 		return err
 	}
 	return nil
 }
-
-func (c *controller) syncDeployment(ns, name string) error {
-	klog.Infoln("Syncing Deployment")
-
-	return nil
+func (c *controller) createService(name, ns string, labels map[string]string) (*corev1.Service, error) {
+	svc := corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: ns,
+		},
+		Spec: corev1.ServiceSpec{
+			Selector: labels,
+			Ports: []corev1.ServicePort{
+				{
+					Name: "http",
+					Port: 80,
+				},
+			},
+		},
+	}
+	s, err := c.clientset.CoreV1().Services(ns).Create(context.Background(), &svc, metav1.CreateOptions{})
+	if err != nil {
+		return nil, err
+	}
+	klog.Infof("Service created: %v/%v", name, ns)
+	return s, nil
 }
-func (c *controller) expose() {
-	//create svc
-	//create ingress
+
+func (c *controller) createIngress(svc *corev1.Service) error {
+	pathType := netapi.PathTypePrefix
+	ingress := netapi.Ingress{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      svc.Name,
+			Namespace: svc.Namespace,
+		},
+		Spec: netapi.IngressSpec{
+			Rules: []netapi.IngressRule{
+				{
+					IngressRuleValue: netapi.IngressRuleValue{
+						HTTP: &netapi.HTTPIngressRuleValue{
+							Paths: []netapi.HTTPIngressPath{
+								{
+									Path:     fmt.Sprintf("/%s", svc.Name),
+									PathType: &pathType,
+									Backend: netapi.IngressBackend{
+										Service: &netapi.IngressServiceBackend{
+											Name: svc.Name,
+											Port: netapi.ServiceBackendPort{
+												Number: svc.Spec.Ports[0].Port,
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	_, err := c.clientset.NetworkingV1().Ingresses(svc.Namespace).Create(context.Background(), &ingress, metav1.CreateOptions{})
+	if err != nil {
+		return err
+	}
+	klog.Infof("Ingress created: %v/%v", ingress.Name, ingress.Name)
+	return nil
 }
