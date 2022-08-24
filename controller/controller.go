@@ -108,6 +108,7 @@ func (c *controller) syncDeployment(name, ns string) error {
 	return nil
 
 }
+
 func (c *controller) expose(dep *coreapi.Deployment) error {
 	svc, err := c.createService(dep.Name, dep.Namespace, dep.Labels)
 	if err != nil {
@@ -118,6 +119,7 @@ func (c *controller) expose(dep *coreapi.Deployment) error {
 	}
 	return nil
 }
+
 func (c *controller) createService(name, ns string, labels map[string]string) (*corev1.Service, error) {
 	svc := corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
