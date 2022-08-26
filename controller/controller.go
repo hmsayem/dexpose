@@ -6,6 +6,7 @@ import (
 	coreapi "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	netapi "k8s.io/api/networking/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/informers/apps/v1"
@@ -38,6 +39,25 @@ func NewController(clientset kubernetes.Interface, depInformer v1.DeploymentInfo
 	})
 	return c
 }
+
+func (c *controller) handleAdd(obj interface{}) {
+	key, err := cache.MetaNamespaceKeyFunc(obj)
+	if err != nil {
+		klog.Error(err)
+	}
+	klog.Infof("%v created.", key)
+	c.queue.Add(obj)
+}
+
+func (c *controller) handleDelete(obj interface{}) {
+	key, err := cache.MetaNamespaceKeyFunc(obj)
+	if err != nil {
+		klog.Error(err)
+	}
+	klog.Infof("%v deleted.", key)
+	c.queue.Add(obj)
+}
+
 func (c *controller) Run(stopCh <-chan struct{}) {
 	klog.Infoln("Starting controller: Dexpose")
 	if !cache.WaitForCacheSync(stopCh, c.isSynced) {
@@ -70,43 +90,29 @@ func (c *controller) processItem() bool {
 		klog.Error(err)
 	}
 
-	klog.Infof("Processing Deployment: %v/%v", name, ns)
-	if err := c.syncDeployment(name, ns); err != nil {
+	dep, err := c.clientset.AppsV1().Deployments(ns).Get(context.Background(), name, metav1.GetOptions{})
+	if err != nil {
+		if errors.IsNotFound(err) {
+			klog.Infof("Deployment deleted: %v/%v", name, ns)
+			return true
+		}
+		klog.Errorf("Failed to sync Deployment: %v/%v. Reason: %v", name, ns, err)
+		return false
+	}
+
+	if err := c.syncDeployment(dep); err != nil {
 		klog.Errorf("Failed to sync Deployment: %v/%v. Reason: %v", name, ns, err)
 		return false
 	}
 	return true
 }
 
-func (c *controller) handleAdd(obj interface{}) {
-	key, err := cache.MetaNamespaceKeyFunc(obj)
-	if err != nil {
-		klog.Error(err)
-	}
-	klog.Infof("%v created.", key)
-	c.queue.Add(obj)
-}
-
-func (c *controller) handleDelete(obj interface{}) {
-	key, err := cache.MetaNamespaceKeyFunc(obj)
-	if err != nil {
-		klog.Error(err)
-	}
-	klog.Infof("%v deleted.", key)
-	c.queue.Add(obj)
-}
-
-func (c *controller) syncDeployment(name, ns string) error {
-	klog.Infof("Syncing Deployment: %v/%v", name, ns)
-	dep, err := c.depLister.Deployments(ns).Get(name)
-	if err != nil {
-		return err
-	}
+func (c *controller) syncDeployment(dep *coreapi.Deployment) error {
+	klog.Infof("Syncing Deployment: %v/%v", dep.Name, dep.Namespace)
 	if err := c.expose(dep); err != nil {
 		return err
 	}
 	return nil
-
 }
 
 func (c *controller) expose(dep *coreapi.Deployment) error {
@@ -158,8 +164,6 @@ func (c *controller) createIngress(svc *corev1.Service) error {
 						HTTP: &netapi.HTTPIngressRuleValue{
 							Paths: []netapi.HTTPIngressPath{
 								{
-									Path:     fmt.Sprintf("/%s", svc.Name),
-									PathType: &pathType,
 									Backend: netapi.IngressBackend{
 										Service: &netapi.IngressServiceBackend{
 											Name: svc.Name,
@@ -168,6 +172,8 @@ func (c *controller) createIngress(svc *corev1.Service) error {
 											},
 										},
 									},
+									Path:     fmt.Sprintf("/%s", svc.Name),
+									PathType: &pathType,
 								},
 							},
 						},
