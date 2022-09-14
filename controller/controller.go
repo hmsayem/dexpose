@@ -96,7 +96,7 @@ func (c *controller) processItem() bool {
 			klog.Infof("Deployment deleted: %v/%v", name, ns)
 			return true
 		}
-		klog.Errorf("Failed to sync Deployment: %v/%v. Reason: %v", name, ns, err)
+		klog.Errorf("Failed to get Deployment: %v/%v. Reason: %v", name, ns, err)
 		return false
 	}
 
@@ -156,6 +156,9 @@ func (c *controller) createIngress(svc *corev1.Service) error {
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      svc.Name,
 			Namespace: svc.Namespace,
+			Annotations: map[string]string{
+				"nginx.ingress.kubernetes.io/rewrite-target": "/",
+			},
 		},
 		Spec: netapi.IngressSpec{
 			Rules: []netapi.IngressRule{
@@ -168,7 +171,7 @@ func (c *controller) createIngress(svc *corev1.Service) error {
 										Service: &netapi.IngressServiceBackend{
 											Name: svc.Name,
 											Port: netapi.ServiceBackendPort{
-												Number: svc.Spec.Ports[0].Port,
+												Number: 80,
 											},
 										},
 									},
