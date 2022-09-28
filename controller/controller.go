@@ -100,14 +100,14 @@ func (c *controller) processItem() bool {
 		return false
 	}
 
-	if err := c.syncDeployment(dep); err != nil {
+	if err := c.reconcile(dep); err != nil {
 		klog.Errorf("Failed to sync Deployment: %v/%v. Reason: %v", name, ns, err)
 		return false
 	}
 	return true
 }
 
-func (c *controller) syncDeployment(dep *coreapi.Deployment) error {
+func (c *controller) reconcile(dep *coreapi.Deployment) error {
 	klog.Infof("Syncing Deployment: %v/%v", dep.Name, dep.Namespace)
 	if err := c.expose(dep); err != nil {
 		return err
