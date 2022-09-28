@@ -1,4 +1,4 @@
-module github.com/hmsayem/dexspose
+module github.com/hmsayem/dexpose
 
 go 1.18
 

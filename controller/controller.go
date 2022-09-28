@@ -45,7 +45,7 @@ func (c *controller) handleAdd(obj interface{}) {
 	if err != nil {
 		klog.Error(err)
 	}
-	klog.Infof("Deployment %v created.", key)
+	klog.Infof("Handling create event for %q", key)
 	c.queue.Add(obj)
 }
 
@@ -54,7 +54,7 @@ func (c *controller) handleDelete(obj interface{}) {
 	if err != nil {
 		klog.Error(err)
 	}
-	klog.Infof("Deployment %v deleted.", key)
+	klog.Infof("Handling delete event for %q", key)
 	c.queue.Add(obj)
 }
 

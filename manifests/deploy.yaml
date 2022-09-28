@@ -1,0 +1,21 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: dexpose
+  name: dexpose
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dexpose
+  template:
+    metadata:
+      creationTimestamp: null
+      labels:
+        app: dexpose
+    spec:
+      containers:
+      - image: hmsayem/dexpose:0.1.0
+        name: dexpose
+      serviceAccountName: dexpose-sa
