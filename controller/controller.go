@@ -45,7 +45,7 @@ func (c *controller) handleAdd(obj interface{}) {
 	if err != nil {
 		klog.Error(err)
 	}
-	klog.Infof("%v created.", key)
+	klog.Infof("Deployment %v created.", key)
 	c.queue.Add(obj)
 }
 
@@ -54,7 +54,7 @@ func (c *controller) handleDelete(obj interface{}) {
 	if err != nil {
 		klog.Error(err)
 	}
-	klog.Infof("%v deleted.", key)
+	klog.Infof("Deployment %v deleted.", key)
 	c.queue.Add(obj)
 }
 
@@ -94,6 +94,9 @@ func (c *controller) processItem() bool {
 	if err != nil {
 		if errors.IsNotFound(err) {
 			klog.Infof("Deployment deleted: %v/%v", name, ns)
+			if err := c.cleanupResources(name, ns); err != nil {
+				return false
+			}
 			return true
 		}
 		klog.Errorf("Failed to get Deployment: %v/%v. Reason: %v", name, ns, err)
@@ -105,6 +108,18 @@ func (c *controller) processItem() bool {
 		return false
 	}
 	return true
+}
+
+func (c *controller) cleanupResources(name string, ns string) error {
+	if err := c.clientset.CoreV1().Services(ns).Delete(context.Background(), name, metav1.DeleteOptions{}); err != nil {
+		klog.Errorf("Failed to delete Service: %v/%v. Reason: %v", name, ns, err)
+		return err
+	}
+	if err := c.clientset.NetworkingV1().Ingresses(ns).Delete(context.Background(), name, metav1.DeleteOptions{}); err != nil {
+		klog.Errorf("Failed to delete Ingress: %v/%v. Reason: %v", name, ns, err)
+		return err
+	}
+	return nil
 }
 
 func (c *controller) reconcile(dep *coreapi.Deployment) error {
